@@ -1,6 +1,7 @@
 -- LocalScript (colocar em StarterPlayerScripts)
--- Pressione T para alternar Highlights para TODOS os jogadores.
--- USO LEGÍTIMO: apenas no seu próprio jogo / para depuração. Não use para trapacear em jogos de terceiros.
+-- Pressione T para alternar Highlights "sempre por cima" (AlwaysOnTop) para TODOS os jogadores.
+-- Uso legítimo: apenas no seu próprio jogo / para depuração. Não há propriedade para ajustar
+-- a espessura da linha no Highlight nativo — ele sempre usa o contorno padrão.
 
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
@@ -9,34 +10,48 @@ local localPlayer = Players.LocalPlayer
 local enabled = false
 
 -- Configurações
-local OUTLINE_COLOR = Color3.fromRGB(255, 0, 0)
-local FILL_TRANSPARENCY = 1        -- 1 = sem preenchimento
-local OUTLINE_TRANSPARENCY = 0     -- 0 = contorno visível
-local HIGHLIGHT_NAME = "DevAlwaysOnTopHighlight"
+local INCLUDE_LOCAL_PLAYER = true                  -- true para incluir também o seu próprio personagem
+local OUTLINE_COLOR = Color3.fromRGB(255, 0, 0)    -- cor do contorno
+local FILL_TRANSPARENCY = 1                        -- 1 = sem preenchimento
+local OUTLINE_TRANSPARENCY = 0                     -- 0 = contorno totalmente visível
+local HIGHLIGHT_NAME = "AlwaysOnTopHighlightClient" -- nome para os Highlights criados
 
-local highlights = {} -- [player] = highlightInstance
+-- Tabela para guardar highlights por jogador
+local highlights = {} -- [player] = Highlight
+
+local function safeDestroy(inst)
+	if inst and inst.Destroy then
+		pcall(function() inst:Destroy() end)
+	end
+end
 
 local function createHighlightForPlayer(player)
 	if not player or not player.Character then return end
 	-- evita duplicação
 	if highlights[player] and highlights[player].Parent then return end
 
-	local hl = Instance.new("Highlight")
-	hl.Name = HIGHLIGHT_NAME
-	hl.Adornee = player.Character
-	hl.FillTransparency = FILL_TRANSPARENCY
-	hl.OutlineColor = OUTLINE_COLOR
-	hl.OutlineTransparency = OUTLINE_TRANSPARENCY
-	-- Faz com que o highlight seja renderizado sobre objetos (através de paredes)
-	hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-	hl.Parent = workspace
-	highlights[player] = hl
+	local ok, hl = pcall(function()
+		local h = Instance.new("Highlight")
+		h.Name = HIGHLIGHT_NAME
+		h.Adornee = player.Character
+		h.FillTransparency = FILL_TRANSPARENCY
+		h.OutlineColor = OUTLINE_COLOR
+		h.OutlineTransparency = OUTLINE_TRANSPARENCY
+		-- Faz com que o highlight seja desenhado por cima de objetos (através de paredes)
+		h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+		h.Parent = workspace
+		return h
+	end)
+
+	if ok and hl then
+		highlights[player] = hl
+	end
 end
 
 local function removeHighlightForPlayer(player)
-	local hl = highlights[player]
-	if hl then
-		pcall(function() hl:Destroy() end)
+	local h = highlights[player]
+	if h then
+		safeDestroy(h)
 		highlights[player] = nil
 	end
 end
@@ -49,28 +64,30 @@ end
 
 local function applyHighlightsToAll()
 	clearAllHighlights()
-	for _, p in pairs(Players:GetPlayers()) do
-		-- inclui também o próprio jogador; remova a linha abaixo se quiser ignorar o localPlayer
-		if p.Character and p.Character:FindFirstChild("Humanoid") then
+	for _, p in ipairs(Players:GetPlayers()) do
+		if p.Character and (INCLUDE_LOCAL_PLAYER or p ~= localPlayer) then
 			createHighlightForPlayer(p)
 		end
 	end
 end
 
--- Eventos para manter highlights atualizados
-Players.PlayerAdded:Connect(function(p)
-	p.CharacterAdded:Connect(function()
-		if enabled then
-			createHighlightForPlayer(p)
+-- Listeners para manter highlights atualizados quando o personagem aparece
+Players.PlayerAdded:Connect(function(player)
+	player.CharacterAdded:Connect(function()
+		-- pequeno atraso para garantir partes/character prontos
+		task.wait(0.03)
+		if enabled and (INCLUDE_LOCAL_PLAYER or player ~= localPlayer) then
+			createHighlightForPlayer(player)
 		end
 	end)
 end)
 
-Players.PlayerRemoving:Connect(function(p)
-	removeHighlightForPlayer(p)
+Players.PlayerRemoving:Connect(function(player)
+	removeHighlightForPlayer(player)
 end)
 
--- toggle com tecla T
+-- Se o Character do jogador já existir (jogo em andamento), também criar quando habilitado
+-- Toggle via tecla T
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if gameProcessed then return end
 	if input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == Enum.KeyCode.T then
@@ -83,6 +100,6 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	end
 end)
 
--- Opcional: começar ativado
+-- Opcional: começar ativado (descomente se desejar)
 -- enabled = true
 -- applyHighlightsToAll()
